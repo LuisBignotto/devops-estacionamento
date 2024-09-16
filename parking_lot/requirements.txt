@@ -1,0 +1,5 @@
+argparse
+PyYAML
+logging
+opencv-python
+numpy
