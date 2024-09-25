@@ -1,57 +1,55 @@
-import argparse
-import yaml
-from coordinates_generator import CoordinatesGenerator
-from motion_detector import MotionDetector
-from colors import *
-import logging
+from fastapi import FastAPI, Request, Response
+from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.middleware.cors import CORSMiddleware
+from detector import ParkingDetector
+import uvicorn
+import cv2
 
+app = FastAPI()
+detector = ParkingDetector()
 
-def main():
-    logging.basicConfig(level=logging.INFO)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], 
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-    args = parse_args()
+@app.get("/camera_image")
+async def camera_image():
+    # Captura uma imagem da câmera
+    cap = cv2.VideoCapture(0)
+    ret, frame = cap.read()
+    cap.release()
+    if not ret:
+        return JSONResponse(content={"error": "Não foi possível capturar a imagem da câmera."}, status_code=500)
+    _, img_encoded = cv2.imencode('.jpg', frame)
+    return Response(content=img_encoded.tobytes(), media_type="image/jpeg")
 
-    image_file = args.image_file
-    data_file = args.data_file
-    start_frame = args.start_frame
+@app.post("/update_coordinates")
+async def update_coordinates(request: Request):
+    data = await request.json()
+    # Salva as coordenadas recebidas
+    detector.update_coordinates(data)
+    return {"status": "success"}
 
-    if image_file is not None:
-        with open(data_file, "w+") as points:
-            generator = CoordinatesGenerator(image_file, points, COLOR_RED)
-            generator.generate()
+@app.get("/video_feed")
+def video_feed():
+    return StreamingResponse(detector.video_generator(), media_type='multipart/x-mixed-replace; boundary=frame')
 
-    with open(data_file, "r") as data:
-        points = yaml.load(data, Loader=yaml.FullLoader)
-        detector = MotionDetector(args.video_file, points, int(start_frame))
-        detector.detect_motion()
+@app.get("/status")
+async def get_status():
+    status = detector.get_status()
+    return JSONResponse(content=status)
 
+@app.on_event("startup")
+async def startup_event():
+    detector.start_detection()
 
-def parse_args():
-    parser = argparse.ArgumentParser(description='Generates Coordinates File')
+@app.on_event("shutdown")
+def shutdown_event():
+    detector.stop_detection()
 
-    parser.add_argument("--image",
-                        dest="image_file",
-                        required=False,
-                        help="Image file to generate coordinates on")
-
-    parser.add_argument("--video",
-                        dest="video_file",
-                        required=True,
-                        help="Video file to detect motion on")
-
-    parser.add_argument("--data",
-                        dest="data_file",
-                        required=True,
-                        help="Data file to be used with OpenCV")
-
-    parser.add_argument("--start-frame",
-                        dest="start_frame",
-                        required=False,
-                        default=1,
-                        help="Starting frame on the video")
-
-    return parser.parse_args()
-
-
-if __name__ == '__main__':
-    main()
+if __name__ == "__main__":
+    uvicorn.run("main:app", host="0.0.0.0", port=8000)
