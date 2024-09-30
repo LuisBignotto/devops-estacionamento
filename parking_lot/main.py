@@ -18,11 +18,8 @@ app.add_middleware(
 
 @app.get("/camera_image")
 async def camera_image():
-    # Captura uma imagem da câmera
-    cap = cv2.VideoCapture(0)
-    ret, frame = cap.read()
-    cap.release()
-    if not ret:
+    frame = detector.get_current_frame()
+    if frame is None:
         return JSONResponse(content={"error": "Não foi possível capturar a imagem da câmera."}, status_code=500)
     _, img_encoded = cv2.imencode('.jpg', frame)
     return Response(content=img_encoded.tobytes(), media_type="image/jpeg")
@@ -30,7 +27,6 @@ async def camera_image():
 @app.post("/update_coordinates")
 async def update_coordinates(request: Request):
     data = await request.json()
-    # Salva as coordenadas recebidas
     detector.update_coordinates(data)
     return {"status": "success"}
 
