@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>Estacionamento</title>
+    <style>
+        * {
+            margin: 0;
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+        }
+        header {
+            background-color: #333;
+            color: white;
+            padding: 20px;
+        }
+        #camera-image, #video-feed {
+            max-width: 100%;
+            height: auto;
+            margin: 20px auto;
+            display: none;
+        }
+        #buttons {
+            margin: 20px;
+        }
+        button {
+            padding: 10px 20px;
+            margin: 5px;
+            font-size: 16px;
+        }
+        #selectionCanvas {
+            border: 1px solid #ccc;
+            cursor: crosshair;
+            display: none;
+            margin: 0 auto;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Estacionamento</h1>
+    </header>
+
+    <img id="camera-image" src="" alt="Imagem da Câmera">
+
+    <canvas id="selectionCanvas"></canvas>
+
+    <img id="video-feed" alt="Feed de Vídeo">
+
+    <div id="buttons">
+        <button id="start-monitoring">Iniciar Monitoramento</button>
+        <button id="reset-coordinates">Resetar Coordenadas</button>
+        <button id="stop-monitoring">Parar Monitoramento</button>
+    </div>
+
+    <script>
+        let coordinates = [];
+        let canvas, context;
+        let imageElement = document.getElementById('camera-image');
+        let videoElement = document.getElementById('video-feed');
+        let currentPolygon = [];
+        let isDrawing = false;
+
+        async function fetchCameraImage() {
+            try {
+                const response = await fetch('http://localhost:8000/camera_image');
+                const blob = await response.blob();
+                const imageUrl = URL.createObjectURL(blob);
+                imageElement.src = imageUrl;
+                imageElement.style.display = 'block';
+
+                setupCanvas(imageUrl);
+            } catch (error) {
+                console.error('Erro ao obter a imagem da câmera:', error);
+            }
+        }
+
+        function setupCanvas(imageUrl) {
+            canvas = document.getElementById('selectionCanvas');
+            const img = new Image();
+            img.onload = function() {
+                canvas.width = img.width;
+                canvas.height = img.height;
+                context = canvas.getContext('2d');
+                context.drawImage(img, 0, 0);
+                canvas.style.display = 'block';
+            };
+            img.src = imageUrl;
+
+            canvas.addEventListener('click', handleCanvasClick);
+            canvas.addEventListener('contextmenu', finishPolygon);
+        }
+
+        function handleCanvasClick(event) {
+            const coord = getMousePos(event);
+            currentPolygon.push(coord);
+            drawPoint(coord);
+
+            if (currentPolygon.length > 1) {
+                drawLine(currentPolygon[currentPolygon.length - 2], coord);
+            }
+        }
+
+        function drawPoint(coord) {
+            context.fillStyle = 'red';
+            context.beginPath();
+            context.arc(coord.x, coord.y, 3, 0, 2 * Math.PI);
+            context.fill();
+        }
+
+        function drawLine(from, to) {
+            context.strokeStyle = 'blue';
+            context.lineWidth = 2;
+            context.beginPath();
+            context.moveTo(from.x, from.y);
+            context.lineTo(to.x, to.y);
+            context.stroke();
+        }
+
+        function finishPolygon(event) {
+            event.preventDefault();
+
+            if (currentPolygon.length < 3) {
+                alert('Você precisa de pelo menos 3 pontos para formar um polígono.');
+                return;
+            }
+
+            drawLine(currentPolygon[currentPolygon.length - 1], currentPolygon[0]);
+
+            context.fillStyle = 'rgba(0, 255, 0, 0.3)';
+            context.beginPath();
+            context.moveTo(currentPolygon[0].x, currentPolygon[0].y);
+            for (let i = 1; i < currentPolygon.length; i++) {
+                context.lineTo(currentPolygon[i].x, currentPolygon[i].y);
+            }
+            context.closePath();
+            context.fill();
+
+            coordinates.push(currentPolygon);
+
+            currentPolygon = [];
+        }
+
+        function getMousePos(event) {
+            const rect = canvas.getBoundingClientRect();
+            return {
+                x: Math.round((event.clientX - rect.left) * (canvas.width / rect.width)),
+                y: Math.round((event.clientY - rect.top) * (canvas.height / rect.height))
+            };
+        }
+
+        document.getElementById('start-monitoring').addEventListener('click', async () => {
+            if (coordinates.length === 0) {
+                alert('Por favor, selecione as vagas antes de iniciar o monitoramento.');
+                return;
+            }
+
+            try {
+                await fetch('http://localhost:8000/update_coordinates', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(coordinates)
+                });
+                imageElement.style.display = 'none';
+                canvas.style.display = 'none';
+                videoElement.style.display = 'block';
+                startVideoFeed();
+            } catch (error) {
+                console.error('Erro ao iniciar o monitoramento:', error);
+            }
+        });
+
+        document.getElementById('reset-coordinates').addEventListener('click', () => {
+            coordinates = [];
+            currentPolygon = [];
+            context.clearRect(0, 0, canvas.width, canvas.height);
+            context.drawImage(imageElement, 0, 0);
+        });
+
+        document.getElementById('stop-monitoring').addEventListener('click', () => {
+            videoElement.style.display = 'none';
+            imageElement.style.display = 'block';
+            canvas.style.display = 'block';
+            videoElement.src = '';
+        });
+
+        function startVideoFeed() {
+            const videoSrc = 'http://localhost:8000/video_feed';
+            videoElement.src = videoSrc;
+        }
+
+        fetchCameraImage();
+    </script>
+</body>
+</html>
