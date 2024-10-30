@@ -1,6 +1,5 @@
 argparse
 PyYAML
-logging
 opencv-python
 numpy
 uvicorn
