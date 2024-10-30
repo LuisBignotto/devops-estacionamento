@@ -5,3 +5,6 @@ opencv-python
 numpy
 uvicorn
 fastapi
+pytest 
+httpx 
+pytest-asyncio
