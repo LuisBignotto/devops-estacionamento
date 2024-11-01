@@ -1,48 +1,54 @@
 import pytest
 from httpx import AsyncClient
 from unittest.mock import MagicMock
-from main import app, detector
-
+from main import app, detector_instance
 import numpy as np
+from fastapi.testclient import TestClient
+from io import BytesIO
+import cv2
+
+client = TestClient(app)
 
 @pytest.mark.asyncio
-async def test_camera_image():
-    # Simula uma imagem de retorno do detector (um array NumPy)
-    detector.get_current_frame = MagicMock(return_value=np.zeros((480, 640, 3), dtype=np.uint8))
-    async with AsyncClient(app=app, base_url="http://localhost:8000") as client:
-        response = await client.get("/camera_image")
-    assert response.status_code == 200
-    assert response.headers["content-type"] == "image/jpeg"
+async def test_upload_image():
+    image = np.zeros((480, 640, 3), dtype=np.uint8)
+    _, image_encoded = cv2.imencode('.jpg', image)
+    image_bytes = BytesIO(image_encoded.tobytes())
 
+    async with AsyncClient(app=app, base_url="http://localhost:8000") as client:
+        files = {'file': ('test.jpg', image_bytes, 'image/jpeg')}
+        response = await client.post("/upload_image", files=files)
+    
+    assert response.status_code == 200
+    assert response.json() == {"message": "Imagem recebida com sucesso."}
 
 @pytest.mark.asyncio
 async def test_update_coordinates():
-    # Dados de teste
-    test_data = [{"x": 10, "y": 20}, {"x": 30, "y": 40}]
-    detector.update_coordinates = MagicMock()
+    test_data = [{"coordinates": [{"x": 10, "y": 20}, {"x": 30, "y": 40}]}]
+    detector_instance.update_coordinates = MagicMock()
     
     async with AsyncClient(app=app, base_url="http://localhost:8000") as client:
-        response = await client.post("/update_coordinates", json=test_data)
+        response = await client.post("/update_coordinates", json={"coordinates": test_data})
     assert response.status_code == 200
     assert response.json() == {"status": "success"}
-    detector.update_coordinates.assert_called_once_with(test_data)
+    detector_instance.update_coordinates.assert_called_once_with(test_data)
 
-@pytest.mark.asyncio
-async def test_get_status():
-    # Simula um status do detector
-    detector.get_status = MagicMock(return_value={"1": True, "2": False})
-    async with AsyncClient(app=app, base_url="http://localhost:8000") as client:
-        response = await client.get("/status")
-    assert response.status_code == 200
-    assert response.json() == {"1": True, "2": False}
+def test_websocket_endpoint():
+    with client.websocket_connect("/ws") as websocket:
+        image = np.zeros((480, 640, 3), dtype=np.uint8)
+        _, image_encoded = cv2.imencode('.jpg', image)
+        websocket.send_bytes(image_encoded.tobytes())
+
+        # Recebe a resposta
+        data = websocket.receive_bytes()
+        assert data is not None
 
 def test_start_stop_detection():
-    # Teste de inicialização e parada da detecção
-    detector.start_detection = MagicMock()
-    detector.stop_detection = MagicMock()
+    detector_instance.start_detection = MagicMock()
+    detector_instance.stop_detection = MagicMock()
     
-    detector.start_detection()
-    detector.start_detection.assert_called_once()
+    detector_instance.start_detection()
+    detector_instance.start_detection.assert_called_once()
     
-    detector.stop_detection()
-    detector.stop_detection.assert_called_once()
+    detector_instance.stop_detection()
+    detector_instance.stop_detection.assert_called_once()
