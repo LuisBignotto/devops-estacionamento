@@ -2,8 +2,11 @@ argparse
 PyYAML
 opencv-python
 numpy
-uvicorn
 fastapi
 pytest 
 httpx 
 pytest-asyncio
+python-multipart
+uvicorn[standard]
+websockets
+wsproto
