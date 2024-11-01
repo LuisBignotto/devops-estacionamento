@@ -1,35 +1,21 @@
-import threading
-import time
 import cv2
 import numpy as np
-import yaml
 
 class ParkingDetector:
     def __init__(self):
         self.statuses = {}
         self.running = False
-        self.thread = None
         self.coordinates_data = []
-        self.capture = None
         self.reference_frame = None
         self.contours = []
         self.bounds = []
         self.mask = []
-        self.current_frame = None
-        self.lock = threading.Lock()
 
     def start_detection(self):
         self.running = True
-        self.capture = cv2.VideoCapture(0)
-        self.thread = threading.Thread(target=self.detect_motion)
-        self.thread.start()
 
     def stop_detection(self):
         self.running = False
-        if self.capture:
-            self.capture.release()
-        if self.thread:
-            self.thread.join()
 
     def update_coordinates(self, coordinates):
         self.coordinates_data = []
@@ -67,39 +53,21 @@ class ParkingDetector:
             self.mask.append(mask)
             self.statuses[p['id']] = False
 
-    def get_status(self):
-        return {str(k): bool(v) for k, v in self.statuses.items()}
+    def detect_motion(self, frame):
+        grayed = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-    def detect_motion(self):
-        while self.running:
-            result, frame = self.capture.read()
-            if not result or frame is None:
-                continue
+        if self.reference_frame is None:
+            self.reference_frame = grayed
+            return frame
 
-            with self.lock:
-                self.current_frame = frame.copy()
+        for index, p in enumerate(self.coordinates_data):
+            status = self.__apply(grayed, index, p)
+            self.statuses[p['id']] = status
+            coordinates = self.contours[index]
+            color = (0, 0, 255) if status else (0, 255, 0)
+            cv2.drawContours(frame, [coordinates], contourIdx=-1, color=color, thickness=2)
 
-            grayed = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-
-            if self.reference_frame is None:
-                self.reference_frame = grayed
-                continue
-
-            for index, p in enumerate(self.coordinates_data):
-                status = self.__apply(grayed, index, p)
-                self.statuses[p['id']] = status
-                coordinates = self.contours[index]
-                color = (0, 0, 255) if status else (0, 255, 0)
-                cv2.drawContours(frame, [coordinates], contourIdx=-1, color=color, thickness=2)
-
-            time.sleep(0.1)
-
-    def get_current_frame(self):
-        with self.lock:
-            if self.current_frame is not None:
-                return self.current_frame.copy()
-            else:
-                return None
+        return frame
 
     def __apply(self, grayed, index, p):
         rect = self.bounds[index]
@@ -116,31 +84,4 @@ class ParkingDetector:
         occupancy_ratio = white_pixels / total_pixels if total_pixels > 0 else 0
 
         status = occupancy_ratio > 0.15
-
         return status
-
-    def video_generator(self):
-        while self.running:
-            result, frame = self.capture.read()
-            if not result or frame is None:
-                continue
-
-            grayed = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-
-            if self.reference_frame is None:
-                self.reference_frame = grayed
-                continue
-
-            for index, p in enumerate(self.coordinates_data):
-                status = self.__apply(grayed, index, p)
-                self.statuses[p['id']] = status
-                coordinates = self.contours[index]
-                color = (0, 0, 255) if status else (0, 255, 0)
-                cv2.drawContours(frame, [coordinates], contourIdx=-1, color=color, thickness=2)
-
-            ret, jpeg = cv2.imencode('.jpg', frame)
-            frame = jpeg.tobytes()
-            yield (b'--frame\r\n'
-                   b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
-
-            time.sleep(0.1)
