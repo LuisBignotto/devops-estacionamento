@@ -1,7 +1,6 @@
 import cv2 as open_cv
 from colors import COLOR_RED
 
-
 def draw_contours(image,
                   coordinates,
                   label,
