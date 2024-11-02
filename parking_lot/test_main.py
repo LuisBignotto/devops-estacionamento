@@ -6,6 +6,7 @@ import numpy as np
 from fastapi.testclient import TestClient
 from io import BytesIO
 import cv2
+from detector import ParkingDetector
 
 client = TestClient(app)
 
@@ -38,8 +39,6 @@ def test_websocket_endpoint():
         image = np.zeros((480, 640, 3), dtype=np.uint8)
         _, image_encoded = cv2.imencode('.jpg', image)
         websocket.send_bytes(image_encoded.tobytes())
-
-        # Recebe a resposta
         data = websocket.receive_bytes()
         assert data is not None
 
@@ -52,3 +51,45 @@ def test_start_stop_detection():
     
     detector_instance.stop_detection()
     detector_instance.stop_detection.assert_called_once()
+
+def test_initialize_parking_spaces():
+    detector = ParkingDetector()
+    coordinates = [{"x": 0, "y": 0}, {"x": 100, "y": 0}, {"x": 100, "y": 100}, {"x": 0, "y": 100}]
+    detector.update_coordinates([coordinates])
+    assert len(detector.contours) > 0
+    assert len(detector.bounds) > 0
+    assert len(detector.mask) > 0
+
+
+def test_detect_motion():
+    detector = ParkingDetector()
+    detector.update_coordinates([[{"x": 0, "y": 0}, {"x": 10, "y": 0}, {"x": 10, "y": 10}, {"x": 0, "y": 10}]])
+    frame = np.zeros((20, 20, 3), dtype=np.uint8)
+    processed_frame = detector.detect_motion(frame)
+    assert processed_frame is not None
+    assert not any(detector.statuses.values())
+
+def test_reset_coordinates():
+    detector = ParkingDetector()
+    coordinates = [{"x": 0, "y": 0}, {"x": 10, "y": 0}, {"x": 10, "y": 10}, {"x": 0, "y": 10}]
+    detector.update_coordinates([coordinates])
+    detector.coordinates_data = []
+    assert detector.coordinates_data == []
+
+
+def test_websocket_continuous_data():
+    with client.websocket_connect("/ws") as websocket:
+        image = np.zeros((480, 640, 3), dtype=np.uint8)
+        _, image_encoded = cv2.imencode('.jpg', image)
+        for _ in range(5):
+            websocket.send_bytes(image_encoded.tobytes())
+            data = websocket.receive_bytes()
+            assert data is not None
+
+def test_apply_motion_detection():
+    detector = ParkingDetector()
+    detector.update_coordinates([[{"x": 0, "y": 0}, {"x": 10, "y": 0}, {"x": 10, "y": 10}, {"x": 0, "y": 10}]])
+    detector.reference_frame = np.zeros((20, 20), dtype=np.uint8)
+    current_frame = np.ones((20, 20), dtype=np.uint8) * 255
+    status = detector._ParkingDetector__apply(current_frame, 0, detector.coordinates_data[0])
+    assert status == True
